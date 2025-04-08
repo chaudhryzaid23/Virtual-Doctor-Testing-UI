@@ -110,10 +110,20 @@ st.title("🧠 LLM API Caller with JSON Upload + Rating + Logging")
 
 uploaded_file = st.file_uploader("📁 Upload a JSON file", type="json")
 
-api_choice = st.selectbox("🧠 Choose LLM API", list(model_options.keys()))
-selected_model = st.selectbox("🛠 Select Model", model_options[api_choice])
-temperature = st.slider("🔥 Temperature", 0.0, 1.0, 0.7, step=0.05)
+# Controls in a row
+col1, col2, col3 = st.columns([1, 1.5, 1])
+with col1:
+    api_choice = st.selectbox("🧠 LLM API", list(model_options.keys()))
+with col2:
+    selected_model = st.selectbox("🛠 Model", model_options[api_choice])
+with col3:
+    temperature = st.slider("🔥 Temp", 0.0, 1.0, 0.7, step=0.05)
 
+default_question = "Please give subjective and objective notes for the dialogue as a doctor."
+question = st.text_area("🔍 Question to ask the model", default_question)
+st.session_state.question = question
+
+# Session state setup
 if "response" not in st.session_state:
     st.session_state.response = None
 if "submitted" not in st.session_state:
@@ -123,17 +133,15 @@ if "question" not in st.session_state:
 if "filename" not in st.session_state:
     st.session_state.filename = ""
 
-default_question = "Please give subjective and objective notes for the dialogue as a doctor."
-question = st.text_area("🔍 Question to ask the model", default_question)
-st.session_state.question = question
-
+# When file uploaded
 if uploaded_file:
     try:
         data = json.load(uploaded_file)
         formatted_json = format_json_to_prompt(data)
 
-        st.subheader("📄 Final Prompt Sent to Model")
         full_prompt = f"{formatted_json}\n\n## Question\n{question}"
+
+        st.subheader("📄 Final Prompt Sent to Model")
         st.text_area("Prompt Preview", full_prompt, height=300)
 
         if st.button("🚀 Call API"):
@@ -153,7 +161,7 @@ if uploaded_file:
     except Exception as e:
         st.error(f"❌ Failed to process JSON: {e}")
 
-# --- Post-response Actions ---
+# After API response
 if st.session_state.response:
     st.subheader("📬 API Response")
     st.text_area("Output", st.session_state.response, height=300)
@@ -180,8 +188,8 @@ if st.session_state.response:
             st.session_state.submitted = True
 
     if st.session_state.submitted:
-        download_path = os.path.join(OUTPUT_DIR, st.session_state.filename)
-        with open(download_path, "r", encoding="utf-8") as f:
+        output_path = os.path.join(OUTPUT_DIR, st.session_state.filename)
+        with open(output_path, "r", encoding="utf-8") as f:
             st.download_button(
                 label="💾 Download Output File",
                 data=f.read(),
@@ -189,7 +197,7 @@ if st.session_state.response:
                 mime="text/plain"
             )
 
-# --- CSV Download ---
+# CSV log download
 if os.path.exists(LOG_FILE):
     with open(LOG_FILE, "r", encoding="utf-8") as f:
         st.download_button(
