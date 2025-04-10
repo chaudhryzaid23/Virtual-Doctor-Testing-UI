@@ -181,8 +181,7 @@ st.code(st.session_state.full_prompt, language="markdown")
 
 # When file uploaded
 try:
-
-
+    
     if st.button("🚀 Call API"):
         with st.spinner("Calling API..."):
             if api_choice == "Gemini":
