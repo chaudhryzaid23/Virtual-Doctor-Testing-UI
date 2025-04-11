@@ -127,8 +127,11 @@ def update_prompt():
 st.set_page_config(page_title="LLM JSON Prompt Tool", layout="wide")
 st.title("🧠 LLM API Caller with JSON Upload + Rating + Logging")
 
+
+st.session_state.question_input = "Please give subjective and objective notes for the dialogue as a doctor."
 st.text_area(
-    "📋 Paste your JSON here",
+    "📋 Paste your Prompt here",
+    st.session_state.question_input,
     height=200,
     key="pasted_text",
 )
@@ -142,12 +145,12 @@ with col2:
 with col3:
     temperature = st.slider("🔥 Temp", 0.0, 1.0, 0.7, step=0.05)
 
-default_question = "Please give subjective and objective notes for the dialogue as a doctor."
-st.text_area(
-    "🔍 Question to ask the model",
-    "Can you analyze this data?",
-    key="question_input",
-)
+
+# st.text_area(
+#     "🔍 Question to ask the model",
+#     "Can you analyze this data?",
+#     key="question_input",
+# )
 
 
 # Session state setup
@@ -165,18 +168,15 @@ if "full_prompt" not in st.session_state:
 
 # Real-time recompute on every rerun
 
-if st.button("🔄 Update Final Prompt"):
-    try:
-        data = st.session_state.pasted_text
-        formatted_json = format_json_to_prompt(data)
-        full_prompt = f"{formatted_json}\n\n## Question\n{st.session_state.question_input}"
-        st.session_state.full_prompt = full_prompt
-    except:
-        full_prompt = "⚠️ Invalid JSON. Please correct it."
+try:
+    data = st.session_state.pasted_text
+    formatted_json = format_json_to_prompt(data)
+    full_prompt = f"{formatted_json}\n\n## Question\n{st.session_state.question_input}"
+    st.session_state.full_prompt = full_prompt
+except:
+    full_prompt = "⚠️ Invalid JSON. Please correct it."
 
-st.subheader("📄 Final Prompt Sent to Model")
-# st.text_area("Prompt Preview", st.session_state.full_prompt, height=300)
-st.code(st.session_state.full_prompt, language="markdown")
+
 
 
 # When file uploaded
