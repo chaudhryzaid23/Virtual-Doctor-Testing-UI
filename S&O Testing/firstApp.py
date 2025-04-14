@@ -161,6 +161,7 @@ def output_and_log_update(filename):
 
 def delete_rating_fn():
     rating = ""
+    st.session_state.rating_received = rating
 
 
 # --- UI State ---
