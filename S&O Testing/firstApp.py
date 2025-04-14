@@ -1,5 +1,5 @@
 import os
-import json
+import pandas as pd
 import re
 import csv
 import random
@@ -102,6 +102,20 @@ def log_to_csv(data: dict, path: str = "llm_log.csv"):
             writer.writeheader()
         writer.writerow(data)
 
+def delete_last_rating(log_file_path: str) -> bool:
+    if not os.path.exists(log_file_path):
+        return False
+
+    df = pd.read_csv(log_file_path)
+
+    if df.empty:
+        return False
+
+    df = df.iloc[:-1]  # Drop the last row
+    df.to_csv(log_file_path, index=False)
+
+    return True
+
 def save_output_file(content: str, filename: str, directory: str = OUTPUT_DIR) -> str:
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, filename)
@@ -122,6 +136,32 @@ def update_prompt():
         st.session_state.full_prompt = "⚠️ Invalid JSON. Please correct it."
 
     st.rerun()
+
+def output_and_log_update(filename):
+    now = datetime.now()
+
+    log_data = {
+        "id": generate_custom_id(),
+        "date": now.strftime("%Y-%m-%d"),
+        "time": now.strftime("%H:%M:%S"),
+        "prompt": st.session_state.question_input,
+        "api": api_choice,
+        "model": selected_model,
+        "temperature": temperature,
+        "rating": rating
+    }
+
+    log_to_csv(log_data)
+    st.success("✅ Rating submitted and response saved.")
+
+    st.session_state.rating_received = rating
+
+    st.session_state.submitted = True
+    st.session_state.show_delete_button = True
+
+def delete_rating_fn():
+    rating = ""
+
 
 # --- UI State ---
 st.set_page_config(page_title="LLM JSON Prompt Tool", layout="wide")
@@ -162,9 +202,17 @@ if "question_input" not in st.session_state:
     st.session_state.question_input = ""
 if "filename" not in st.session_state:
     st.session_state.filename = ""
+if "response_received" not in st.session_state:
+    st.session_state.response_received = ""
+if "rating_received" not in st.session_state:
+    st.session_state.rating_received = ""
+
+if "show_delete_button" not in st.session_state:
+        st.session_state.show_delete_button = False
 # Ensure full_prompt exists
 if "full_prompt" not in st.session_state:
     st.session_state.full_prompt = ""
+
 
 # Real-time recompute on every rerun
 
@@ -177,11 +225,9 @@ except:
     full_prompt = "⚠️ Invalid JSON. Please correct it."
 
 
-
-
 # When file uploaded
 try:
-    
+
     if st.button("🚀 Call API"):
         with st.spinner("Calling API..."):
             if api_choice == "Gemini":
@@ -196,6 +242,8 @@ try:
         st.session_state.response = response
         st.session_state.submitted = False
 
+        st.session_state.show_delete_button = False
+
 except Exception as e:
     st.error(f"❌ Failed to process JSON: {e}")
 
@@ -207,36 +255,41 @@ if st.session_state.response:
     st.text_area("Output", st.session_state.response, height=300)
 
     if not st.session_state.submitted:
+        st.session_state.response_received = True
+        rating_received = st.session_state.rating_received
+        filename = f"{api_choice}_{selected_model}_temp{temperature}_r{rating_received}_{clean_filename(st.session_state.question_input)}.txt"
+
+        save_output_file(st.session_state.response, filename)
+        st.session_state.filename = filename
+
         rating = st.slider("⭐ Rate the Response (0–10)", 0, 10, 5, key="rating")
-        if st.button("✅ Submit Rating"):
-            now = datetime.now()
-            filename = f"{api_choice}_{selected_model}_temp{temperature}_r{rating}_{clean_filename(st.session_state.question_input)}.txt"
-            save_output_file(st.session_state.response, filename)
-            st.session_state.filename = filename
+        st.button("✅ Submit Rating", on_click=output_and_log_update, args=(filename, ))
 
-            log_data = {
-                "id": generate_custom_id(),
-                "date": now.strftime("%Y-%m-%d"),
-                "time": now.strftime("%H:%M:%S"),
-                "prompt": st.session_state.question_input,
-                "api": api_choice,
-                "model": selected_model,
-                "temperature": temperature,
-                "rating": rating
-            }
-            log_to_csv(log_data)
-            st.success("✅ Rating submitted and response saved.")
-            st.session_state.submitted = True
 
-    if st.session_state.submitted:
-        output_path = os.path.join(OUTPUT_DIR, st.session_state.filename)
-        with open(output_path, "r", encoding="utf-8") as f:
-            st.download_button(
+
+if st.session_state.response_received:
+    output_path = os.path.join(OUTPUT_DIR, st.session_state.filename)
+    with open(output_path, "r", encoding="utf-8") as f:
+        if st.download_button(
                 label="💾 Download Output File",
                 data=f.read(),
                 file_name=st.session_state.filename,
                 mime="text/plain"
-            )
+        ):
+            pass
+
+
+if st.session_state.show_delete_button:
+    if st.button("🗑️ Delete Last Rating", on_click=delete_rating_fn):
+        success = delete_last_rating(LOG_FILE)
+        if success:
+            st.success("Last rating deleted from log.")
+            # Important: Reset both to hide button & avoid deleting past logs
+            st.session_state.show_delete_button = False
+            st.session_state.submitted = False
+            st.rerun()
+        else:
+            st.warning("Nothing to delete.")
 
 # CSV log download
 if os.path.exists(LOG_FILE):
