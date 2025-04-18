@@ -14,6 +14,22 @@ import google.generativeai as genai
 
 
 from envVars.env_vars import openaiKey, geminiKey, claudeKey
+from modules.api_handlers import (
+    model_options,
+    call_gemini_api,
+    call_claude_api,
+    call_openai_api
+)
+from modules.file_utils import (
+    OUTPUT_DIR,
+    LOG_FILE,
+    clean_filename,
+    log_to_csv,
+    delete_last_rating,
+    save_output_file,
+    generate_custom_id
+)
+from modules.json_utils import format_json_to_prompt
 
 
 # --- API Key Setup (expects you to set these in your environment or secrets) ---
@@ -24,9 +40,6 @@ genai.configure(api_key=geminiKey)
 gemini_model_instance = genai.GenerativeModel('gemini-2.0-pro')  # Default
 
 anthropic_client = anthropic.Anthropic(api_key=claudeKey)
-
-OUTPUT_DIR = "outputs"
-LOG_FILE = "llm_log.csv"
 
 # --- Model options ---
 model_options = {
@@ -248,8 +261,6 @@ try:
 except Exception as e:
     st.error(f"❌ Failed to process JSON: {e}")
 
-
-
 # After API response
 if st.session_state.response:
     st.subheader("📬 API Response")
@@ -266,38 +277,75 @@ if st.session_state.response:
         rating = st.slider("⭐ Rate the Response (0–10)", 0, 10, 5, key="rating")
         st.button("✅ Submit Rating", on_click=output_and_log_update, args=(filename, ))
 
+    if st.session_state.response_received:
+        output_path = os.path.join(OUTPUT_DIR, st.session_state.filename)
+        with open(output_path, "r", encoding="utf-8") as f:
+            if st.download_button(
+                    label="💾 Download Output File",
+                    data=f.read(),
+                    file_name=st.session_state.filename,
+                    mime="text/plain"
+            ):
+                pass
 
+    if st.session_state.show_delete_button:
+        if st.button("🗑️ Delete Last Rating", on_click=delete_rating_fn):
+            success = delete_last_rating(LOG_FILE)
+            if success:
+                st.success("Last rating deleted from log.")
+                # Important: Reset both to hide button & avoid deleting past logs
+                st.session_state.show_delete_button = False
+                st.session_state.submitted = False
+                st.rerun()
+            else:
+                st.warning("Nothing to delete.")
 
-if st.session_state.response_received:
-    output_path = os.path.join(OUTPUT_DIR, st.session_state.filename)
-    with open(output_path, "r", encoding="utf-8") as f:
-        if st.download_button(
-                label="💾 Download Output File",
+    # CSV log download
+    if os.path.exists(LOG_FILE):
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            st.download_button(
+                label="📥 Download Log CSV",
                 data=f.read(),
-                file_name=st.session_state.filename,
-                mime="text/plain"
-        ):
-            pass
+                file_name=LOG_FILE,
+                mime="text/csv"
+            )
 
+# Assessment and Plan Generation Section
+st.markdown("---")
+st.subheader("Generate Assessment and Plan")
 
-if st.session_state.show_delete_button:
-    if st.button("🗑️ Delete Last Rating", on_click=delete_rating_fn):
-        success = delete_last_rating(LOG_FILE)
-        if success:
-            st.success("Last rating deleted from log.")
-            # Important: Reset both to hide button & avoid deleting past logs
-            st.session_state.show_delete_button = False
-            st.session_state.submitted = False
-            st.rerun()
-        else:
-            st.warning("Nothing to delete.")
+# New controls for assessment generation
+col1, col2, col3 = st.columns([1, 1.5, 1])
+with col1:
+    assessment_api_choice = st.selectbox("🧠 Assessment LLM API", list(model_options.keys()), key="assessment_api")
+with col2:
+    assessment_model = st.selectbox("🛠 Assessment Model", model_options[assessment_api_choice], key="assessment_model")
+with col3:
+    assessment_temperature = st.slider("�� Assessment Temp", 0.0, 1.0, 0.7, step=0.05, key="assessment_temp")
 
-# CSV log download
-if os.path.exists(LOG_FILE):
-    with open(LOG_FILE, "r", encoding="utf-8") as f:
-        st.download_button(
-            label="📥 Download Log CSV",
-            data=f.read(),
-            file_name=LOG_FILE,
-            mime="text/csv"
-        )
+if st.session_state.response:
+    assessment_prompt = f"{st.session_state.response}\n\n## Question\nPlease generate assessment and plan for the subjective and objective notes above"
+    
+    if st.button("📝 Generate Assessment and Plan"):
+        with st.spinner("Generating Assessment and Plan..."):
+            if assessment_api_choice == "Gemini":
+                assessment_response = call_gemini_api(assessment_model, assessment_temperature, assessment_prompt)
+            elif assessment_api_choice == "Claude":
+                assessment_response = call_claude_api(assessment_model, assessment_temperature, assessment_prompt)
+            elif assessment_api_choice == "OpenAI":
+                assessment_response = call_openai_api(assessment_model, assessment_temperature, assessment_prompt)
+            else:
+                assessment_response = "Unknown API."
+
+        st.session_state.assessment_response = assessment_response
+        st.text_area("Assessment and Plan", assessment_response, height=300)
+
+        # Save assessment to file
+        if 'assessment_response' in st.session_state:
+            assessment_filename = f"assessment_{clean_filename(st.session_state.filename)}"
+            assessment_path = save_output_file(
+                st.session_state.assessment_response,
+                assessment_filename,
+                OUTPUT_DIR
+            )
+            st.success(f"✅ Assessment saved to {assessment_path}")
