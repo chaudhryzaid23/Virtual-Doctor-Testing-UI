@@ -6,6 +6,7 @@ import random
 import string
 from datetime import datetime
 import streamlit as st
+import requests
 
 import openai
 from openai import OpenAI
@@ -152,9 +153,8 @@ def update_prompt():
 
 def output_and_log_update(filename):
     now = datetime.now()
-
     log_data = {
-        "id": generate_custom_id(),
+        "id": str(now.timestamp()),
         "date": now.strftime("%Y-%m-%d"),
         "time": now.strftime("%H:%M:%S"),
         "prompt": st.session_state.question_input,
@@ -163,19 +163,31 @@ def output_and_log_update(filename):
         "temperature": temperature,
         "rating": rating
     }
-
-    log_to_csv(log_data)
-    st.success("✅ Rating submitted and response saved.")
-
-    st.session_state.rating_received = rating
-
-    st.session_state.submitted = True
-    st.session_state.show_delete_button = True
+    
+    try:
+        response = requests.post("http://localhost:3000/log-rating/append", json=log_data)
+        if response.status_code == 201:
+            st.success("✅ Rating submitted and response saved.")
+            st.session_state.rating_received = rating
+            st.session_state.submitted = True
+            st.session_state.show_delete_button = True
+        else:
+            st.error("❌ Failed to save rating to backend.")
+    except Exception as e:
+        st.error(f"❌ Error connecting to backend: {e}")
 
 def delete_rating_fn():
-    rating = ""
-    st.session_state.rating_received = rating
-
+    try:
+        response = requests.delete("http://localhost:3000/log-rating/delete-last")
+        if response.status_code == 200:
+            st.success("Last rating deleted from log.")
+            st.session_state.show_delete_button = False
+            st.session_state.submitted = False
+            st.rerun()
+        else:
+            st.warning("Nothing to delete.")
+    except Exception as e:
+        st.error(f"❌ Error connecting to backend: {e}")
 
 # --- UI State ---
 st.set_page_config(page_title="LLM JSON Prompt Tool", layout="wide")
@@ -290,25 +302,23 @@ if st.session_state.response:
 
     if st.session_state.show_delete_button:
         if st.button("🗑️ Delete Last Rating", on_click=delete_rating_fn):
-            success = delete_last_rating(LOG_FILE)
-            if success:
-                st.success("Last rating deleted from log.")
-                # Important: Reset both to hide button & avoid deleting past logs
-                st.session_state.show_delete_button = False
-                st.session_state.submitted = False
-                st.rerun()
-            else:
-                st.warning("Nothing to delete.")
+            pass
 
     # CSV log download
-    if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            st.download_button(
-                label="📥 Download Log CSV",
-                data=f.read(),
-                file_name=LOG_FILE,
-                mime="text/csv"
-            )
+    if st.button("📥 Download Log CSV"):
+        try:
+            response = requests.get("http://localhost:3000/log-rating/download", stream=True)
+            if response.status_code == 200:
+                st.download_button(
+                    label="Download Log File",
+                    data=response.content,
+                    file_name="llm_log.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.error("Failed to download log file.")
+        except Exception as e:
+            st.error(f"❌ Error connecting to backend: {e}")
 
 # Assessment and Plan Generation Section
 st.markdown("---")
@@ -321,7 +331,7 @@ with col1:
 with col2:
     assessment_model = st.selectbox("🛠 Assessment Model", model_options[assessment_api_choice], key="assessment_model")
 with col3:
-    assessment_temperature = st.slider("�� Assessment Temp", 0.0, 1.0, 0.7, step=0.05, key="assessment_temp")
+    assessment_temperature = st.slider("🔥 Assessment Temp", 0.0, 1.0, 0.7, step=0.05, key="assessment_temp")
 
 if st.session_state.response:
     assessment_prompt = f"{st.session_state.response}\n\n## Question\nPlease generate assessment and plan for the subjective and objective notes above"
